@@ -25,6 +25,12 @@ go build -ldflags="-s -w" -o uploader ./cmd/uploader
 
 ### Application Usage
 ```bash
+# Generate CSV from images folder (scans directory and creates manifest)
+./uploader generate --dir /path/to/images --output products.csv
+
+# Generate CSV with custom part number pattern
+./uploader generate --dir /path/to/images --pattern "^[A-Z0-9]+" --interactive
+
 # Upload images from CSV
 ./uploader upload --csv products.csv
 
@@ -81,14 +87,22 @@ CSV Input → Parser → Job Queue → Worker Pool (20 workers) → Cloudinary A
 
 ```
 image-sourcer/
-├── cmd/uploader/          # CLI entry point (currently empty, needs implementation)
+├── cmd/uploader/          # CLI entry point
+│   ├── main.go           # Cobra CLI setup with all commands
+│   ├── generate.go       # Generate CSV from images folder
+│   ├── upload.go         # Upload command with progress tracking
+│   ├── validate.go       # CSV validation command
+│   ├── stats.go          # Statistics display command
+│   └── reset.go          # State reset command
 ├── internal/
 │   ├── config/           # Configuration loading (Viper-based, validates Cloudinary creds)
 │   ├── csv/              # CSV parsing (part_number, product_name, image_path, is_primary)
 │   ├── cloudinary/       # Cloudinary SDK wrapper and upload logic
-│   ├── image/            # Image validation
+│   │   ├── client.go     # Cloudinary client wrapper with Ping()
+│   │   └── uploader.go   # Upload logic with retry and transformations
+│   ├── image/            # Image validation (file type, size, dimensions)
 │   ├── state/            # State tracking (.upload-state.json persistence)
-│   ├── worker/           # Worker pool implementation
+│   ├── worker/           # Worker pool implementation with goroutines
 │   └── report/           # Report generation (CSV with Cloudinary URLs)
 ├── reports/              # Generated upload reports
 ├── config.yaml           # User configuration (gitignored, use config.example.yaml)
@@ -97,40 +111,64 @@ image-sourcer/
 
 ### Core Packages
 
-**internal/config**
+**cmd/uploader**
+- Full Cobra-based CLI with 5 commands: generate, upload, validate, stats, reset
+- `generate.go`: Scans image directories, extracts part numbers, auto-generates CSV manifests
+- `upload.go`: Main upload command with progress bars, dry-run mode, resume capability
+- `validate.go`: Pre-flight CSV validation without uploading
+- `stats.go`: Display upload statistics from state file
+- `reset.go`: Clear state and start fresh
+
+**internal/config** (144 lines)
 - Uses Viper for YAML configuration
 - Validates all required Cloudinary credentials
 - Configures: workers, retry logic, transformations, state tracking, output settings
 - Key struct: `Config` with nested configs for Cloudinary, Upload, Transformations, State, Output
 
-**internal/csv**
+**internal/csv** (253 lines)
 - Parses CSV manifest with columns: `part_number, product_name, image_path, is_primary`
 - Groups images by product (part_number)
 - Returns `Manifest` struct with both product-grouped and flat image lists
 - Validates CSV structure and required columns
+- Full validation with row-level error reporting
 
-**internal/cloudinary**
+**internal/cloudinary** (306 lines)
 - Wraps official Cloudinary Go SDK (`github.com/cloudinary/cloudinary-go/v2`)
+- `client.go`: Client wrapper with Ping() for connection testing
+- `uploader.go`: Upload logic with retry, transformations, URL generation
 - Uploads to folder structure: `/products/{part_number}/{part_number}_001.jpg`
 - Applies automatic transformations: format=auto, quality=auto
 - Generates multiple URL variants (original, thumbnail, main, zoom)
+- Retry with exponential backoff
 
-**internal/state**
+**internal/state** (182 lines)
+- Thread-safe state management with RWMutex
 - Persists upload history to `.upload-state.json`
 - Tracks which products have been uploaded to avoid duplicates
 - Enables resume functionality for interrupted uploads
 - Stores Cloudinary URLs for each uploaded image
+- Methods: Load(), Save(), IsProductUploaded(), MarkProductUploaded(), Clear()
 
-**internal/worker**
-- Implements concurrent worker pool pattern
+**internal/worker** (120 lines)
+- Implements concurrent worker pool pattern with goroutines
 - Configurable worker count (default: 20)
-- Channels-based job distribution
-- Collects results from all workers
+- Buffered channels for job distribution and result collection
+- Context-based cancellation support
+- Graceful shutdown with WaitGroup
+- Methods: Start(), Submit(), Results(), Close(), Cancel()
 
-**internal/report**
+**internal/image** (172 lines)
+- Validates image files before upload
+- Checks file types (JPG, PNG, GIF, WebP, BMP)
+- Validates file existence and accessibility
+- Checks file sizes and dimensions
+- Supports WebP format
+
+**internal/report** (171 lines)
 - Generates CSV reports in `reports/` directory
 - Includes: part_number, product_name, original_path, cloudinary_url, thumbnail_url, main_url, zoom_url, status, error_message
 - Reports can be imported directly into e-commerce databases
+- Timestamped report files
 
 ### Cloudinary Integration
 
@@ -193,17 +231,59 @@ The `.upload-state.json` file tracks:
 - **Memory**: ~50-100 MB
 - **CPU**: Low (I/O bound)
 
+## Special Features
+
+### CSV Generation from Folders
+
+The `generate` command is a powerful feature that scans a directory of images and automatically creates a CSV manifest:
+
+```bash
+# Basic usage - scans folder and creates products.csv
+./uploader generate --dir /path/to/images
+
+# Custom output file
+./uploader generate --dir /path/to/images --output manifest.csv
+
+# Custom regex pattern for part number extraction
+./uploader generate --dir /path/to/images --pattern "^[A-Z]{3}\d{4}"
+
+# Interactive mode - prompts for product names
+./uploader generate --dir /path/to/images --interactive
+```
+
+**How it works:**
+1. Recursively scans the specified directory for image files (.jpg, .jpeg, .png, .gif, .webp, .bmp)
+2. Extracts part numbers from filenames using regex (default: `^[A-Z0-9]+`)
+3. Groups images by part number
+4. Auto-generates product names from filenames
+5. Sets the first image in each group as primary
+6. Outputs a properly formatted CSV ready for upload
+
+**Supported filename patterns:**
+- `ABC123_001.jpg` → Part: ABC123
+- `XYZ-456-blue-widget.png` → Part: XYZ, Name: blue widget
+- `PROD789 image 1.jpg` → Part: PROD789, Name: image
+
 ## Development Notes
 
 ### Implementation Status
-- ✅ Configuration loading (`internal/config/config.go`)
-- ✅ CSV parsing structure (`internal/csv/parser.go` - partial)
-- ❌ CLI entry point (`cmd/uploader/main.go` - needs implementation)
-- ❌ Cloudinary client wrapper
-- ❌ Worker pool implementation
-- ❌ State tracking
-- ❌ Image validation
-- ❌ Report generation
+
+**Fully Implemented** (1,348+ lines of Go code)
+- ✅ Configuration loading (`internal/config/config.go` - 144 lines)
+- ✅ CSV parsing (`internal/csv/parser.go` - 253 lines)
+- ✅ CLI entry point (`cmd/uploader/` - main.go + 5 command files)
+- ✅ Cloudinary client wrapper (`internal/cloudinary/` - 306 lines)
+- ✅ Worker pool implementation (`internal/worker/pool.go` - 120 lines)
+- ✅ State tracking (`internal/state/tracker.go` - 182 lines)
+- ✅ Image validation (`internal/image/validator.go` - 172 lines)
+- ✅ Report generation (`internal/report/generator.go` - 171 lines)
+
+**Commands Available:**
+- ✅ `generate` - Auto-generate CSV from image folders
+- ✅ `upload` - Upload with progress, retry, resume
+- ✅ `validate` - Pre-flight CSV validation
+- ✅ `stats` - Display upload statistics
+- ✅ `reset` - Clear state file
 
 ### Key Dependencies
 - `github.com/cloudinary/cloudinary-go/v2` - Official Cloudinary SDK

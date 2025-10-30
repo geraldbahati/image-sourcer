@@ -32,7 +32,20 @@ cp config.example.yaml config.yaml
 
 ### 2. Prepare Your CSV
 
-Create a CSV file with your product images:
+**Option A: Auto-generate from images folder**
+
+```bash
+# Scan a directory and auto-generate CSV manifest
+./uploader generate --dir /path/to/images --output products.csv
+
+# With custom part number pattern
+./uploader generate --dir /path/to/images --pattern "^[A-Z0-9]+"
+
+# Interactive mode (prompts for product names)
+./uploader generate --dir /path/to/images --interactive
+```
+
+**Option B: Create CSV manually**
 
 ```csv
 part_number,product_name,image_path,is_primary
@@ -58,6 +71,9 @@ go build -o uploader ./cmd/uploader
 ### Basic Commands
 
 ```bash
+# Generate CSV from images folder
+./uploader generate --dir /path/to/images
+
 # Upload images from CSV
 ./uploader upload --csv products.csv
 
