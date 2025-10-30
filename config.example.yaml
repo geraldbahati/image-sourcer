@@ -1,0 +1,35 @@
+cloudinary:
+  cloud_name: "your-cloud-name"
+  api_key: "your-api-key"
+  api_secret: "your-api-secret"
+  folder: "products"
+
+upload:
+  concurrent_workers: 20
+  retry_attempts: 3
+  retry_delay: 2s
+  timeout: 30s
+
+transformations:
+  format: "auto"
+  quality: "auto:good"
+  max_width: 2000
+  max_height: 2000
+  strip_metadata: true
+
+eager:
+  - transformation: "w_300,h_300,c_fill,f_auto,q_auto"
+    name: "thumbnail"
+  - transformation: "w_1000,h_1000,c_pad,b_white,f_auto,q_auto"
+    name: "product_main"
+  - transformation: "w_2000,h_2000,c_fit,f_auto,q_auto:good"
+    name: "product_zoom"
+
+state:
+  enabled: true
+  file: ".upload-state.json"
+
+output:
+  report_dir: "reports"
+  verbose: true
+  show_progress: true

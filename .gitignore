@@ -1,0 +1,49 @@
+# Binaries
+uploader
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Config with secrets (never commit this!)
+config.yaml
+
+# State files
+.upload-state.json
+
+# Reports directory
+reports/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+
+# Test data
+test-images/
+*.csv
+
