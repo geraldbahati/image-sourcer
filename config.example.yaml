@@ -33,3 +33,12 @@ output:
   report_dir: "reports"
   verbose: true
   show_progress: true
+
+convex:
+  deployment_url: "https://famous-mandrill-741.convex.cloud"
+  api_key: "your-convex-api-key"  # Optional - for authenticated requests
+  batch_size: 10  # Products per batch
+  max_workers: 5  # Concurrent import workers
+  retry_attempts: 3
+  retry_delay: 2s
+  request_timeout: 30s

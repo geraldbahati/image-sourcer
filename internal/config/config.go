@@ -14,6 +14,7 @@ type Config struct {
 	Eager           []EagerTransformation `mapstructure:"eager"`
 	State           StateConfig           `mapstructure:"state"`
 	Output          OutputConfig          `mapstructure:"output"`
+	Convex          ConvexConfig          `mapstructure:"convex"`
 }
 
 // CloudinaryConfig holds Cloudinary-specific settings
@@ -58,6 +59,17 @@ type OutputConfig struct {
 	ReportDir    string `mapstructure:"report_dir"`
 	Verbose      bool   `mapstructure:"verbose"`
 	ShowProgress bool   `mapstructure:"show_progress"`
+}
+
+// ConvexConfig holds Convex database settings
+type ConvexConfig struct {
+	DeploymentURL  string        `mapstructure:"deployment_url"`
+	APIKey         string        `mapstructure:"api_key"`
+	BatchSize      int           `mapstructure:"batch_size"`
+	MaxWorkers     int           `mapstructure:"max_workers"`
+	RetryAttempts  int           `mapstructure:"retry_attempts"`
+	RetryDelay     time.Duration `mapstructure:"retry_delay"`
+	RequestTimeout time.Duration `mapstructure:"request_timeout"`
 }
 
 // Load reads the configuration from the specified file

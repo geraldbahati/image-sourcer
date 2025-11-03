@@ -33,6 +33,9 @@ to Cloudinary with intelligent optimization and state management.`,
 	rootCmd.AddCommand(newValidateCmd())
 	rootCmd.AddCommand(newStatsCmd())
 	rootCmd.AddCommand(newResetCmd())
+	rootCmd.AddCommand(newAnalyzeCmd())
+	rootCmd.AddCommand(newEnrichCmd())
+	rootCmd.AddCommand(newImportCmd())
 
 	return rootCmd
 }
