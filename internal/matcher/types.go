@@ -7,15 +7,16 @@ import (
 // UploadState represents the .upload-state.json structure
 type UploadState struct {
 	LastUpload string                     `json:"last_upload"`
-	Products   map[string]UploadedProduct `json:"products"` // SKU → Product
+	Products   map[string]UploadedProduct `json:"uploaded_products"` // SKU → Product
 }
 
 // UploadedProduct represents a product with uploaded images
 type UploadedProduct struct {
-	PartNumber string            `json:"part_number"`
-	UploadedAt string            `json:"uploaded_at"`
-	ImageCount int               `json:"image_count"`
-	Images     []CloudinaryImage `json:"images"`
+	PartNumber     string   `json:"part_number"`
+	ProductName    string   `json:"product_name"`
+	Images         []string `json:"images"`          // Public IDs
+	CloudinaryURLs []string `json:"cloudinary_urls"` // Cloudinary URLs
+	UploadedAt     string   `json:"uploaded_at"`
 }
 
 // CloudinaryImage represents image URLs from Cloudinary

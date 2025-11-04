@@ -200,9 +200,9 @@ func (m *Matcher) matchWorker(ctx context.Context, jobs <-chan matchJob, result 
 
 			// Try to match to upload state (O(1) hash map lookup)
 			if uploaded, found := m.state.Products[product.SKU]; found {
-				product.Images = uploaded.Images
+				product.Images = convertToCloudinaryImages(uploaded.CloudinaryURLs)
 				product.HasImages = true
-				product.ImageCount = uploaded.ImageCount
+				product.ImageCount = len(uploaded.CloudinaryURLs)
 				result.AddMatched(product)
 			} else {
 				// Try alternate SKU formats (common variations)
@@ -211,9 +211,9 @@ func (m *Matcher) matchWorker(ctx context.Context, jobs <-chan matchJob, result 
 
 				for _, altSKU := range alternates {
 					if uploaded, found := m.state.Products[altSKU]; found {
-						product.Images = uploaded.Images
+						product.Images = convertToCloudinaryImages(uploaded.CloudinaryURLs)
 						product.HasImages = true
-						product.ImageCount = uploaded.ImageCount
+						product.ImageCount = len(uploaded.CloudinaryURLs)
 						result.AddMatched(product)
 						matched = true
 						break
@@ -228,6 +228,82 @@ func (m *Matcher) matchWorker(ctx context.Context, jobs <-chan matchJob, result 
 			}
 		}
 	}
+}
+
+// convertToCloudinaryImages converts CloudinaryURL strings to CloudinaryImage objects with transformations
+func convertToCloudinaryImages(cloudinaryURLs []string) []CloudinaryImage {
+	images := make([]CloudinaryImage, len(cloudinaryURLs))
+
+	for i, url := range cloudinaryURLs {
+		// Extract the base URL and public ID from the Cloudinary URL
+		// URL format: https://res.cloudinary.com/{cloud_name}/image/upload/v{version}/{public_id}.{ext}
+
+		images[i] = CloudinaryImage{
+			Path:          extractPublicID(url),
+			CloudinaryURL: url,
+			ThumbnailURL:  generateThumbnailURL(url),
+			MainURL:       generateMainURL(url),
+			ZoomURL:       generateZoomURL(url),
+		}
+	}
+
+	return images
+}
+
+// extractPublicID extracts the public ID from a Cloudinary URL
+func extractPublicID(url string) string {
+	// Extract everything after /upload/
+	parts := strings.Split(url, "/upload/")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	// Remove version if present (v1234567890)
+	path := parts[1]
+	if strings.HasPrefix(path, "v") {
+		// Remove version number
+		slashIdx := strings.Index(path, "/")
+		if slashIdx > 0 {
+			path = path[slashIdx+1:]
+		}
+	}
+
+	// Remove file extension
+	dotIdx := strings.LastIndex(path, ".")
+	if dotIdx > 0 {
+		path = path[:dotIdx]
+	}
+
+	return path
+}
+
+// generateThumbnailURL generates thumbnail transformation URL (300x300)
+func generateThumbnailURL(baseURL string) string {
+	return insertTransformation(baseURL, "w_300,h_300,c_fill,f_auto,q_auto")
+}
+
+// generateMainURL generates main image transformation URL (1000x1000)
+func generateMainURL(baseURL string) string {
+	return insertTransformation(baseURL, "w_1000,h_1000,c_pad,b_white,f_auto,q_auto")
+}
+
+// generateZoomURL generates zoom transformation URL (2000x2000)
+func generateZoomURL(baseURL string) string {
+	return insertTransformation(baseURL, "w_2000,h_2000,c_fit,f_auto,q_auto:good")
+}
+
+// insertTransformation inserts transformation parameters into Cloudinary URL
+func insertTransformation(url, transformation string) string {
+	// URL format: https://res.cloudinary.com/{cloud_name}/image/upload/v{version}/{public_id}.{ext}
+	// Insert transformation after /upload/: https://res.cloudinary.com/{cloud_name}/image/upload/{transformation}/v{version}/{public_id}.{ext}
+
+	uploadIdx := strings.Index(url, "/upload/")
+	if uploadIdx < 0 {
+		return url
+	}
+
+	// Insert transformation after /upload/
+	return url[:uploadIdx+8] + transformation + "/" + url[uploadIdx+8:]
 }
 
 // generateSKUAlternates generates common SKU variations for better matching
