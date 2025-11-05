@@ -1,6 +1,7 @@
 # Binaries for all platforms
 uploader
 uploader-*
+bin/
 *.exe
 *.exe~
 *.dll

@@ -126,12 +126,28 @@ func (c *Client) executeMutation(ctx context.Context, path string, args map[stri
 	// Parse response
 	var mutationResp ConvexMutationResponse
 	if err := json.Unmarshal(body, &mutationResp); err != nil {
+		// DEBUG: Print raw body if parse fails
+		fmt.Printf("DEBUG: Failed to parse response for %s. Raw body: %s\n", path, string(body))
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// Check for Convex errors
+	// DEBUG: Print first response to understand structure
+	if path == "products/createProduct:create" {
+		fmt.Printf("DEBUG: Sample response for %s:\n  Body: %s\n  Value: %+v\n  Error: %+v\n  Status: %s\n  ErrorMessage: %s\n",
+			path, string(body), mutationResp.Value, mutationResp.Error, mutationResp.Status, mutationResp.ErrorMessage)
+	}
+
+	// Check for Convex errors (handles both response formats)
 	if mutationResp.Error != nil {
 		return nil, mutationResp.Error
+	}
+
+	// Alternative error format: {status: "error", errorMessage: "..."}
+	if mutationResp.Status == "error" && mutationResp.ErrorMessage != "" {
+		return nil, &ConvexError{
+			Code:    "VALIDATION_ERROR",
+			Message: mutationResp.ErrorMessage,
+		}
 	}
 
 	return mutationResp.Value, nil
@@ -139,28 +155,73 @@ func (c *Client) executeMutation(ctx context.Context, path string, args map[stri
 
 // CreateProduct creates a product in Convex
 func (c *Client) CreateProduct(ctx context.Context, product ConvexProduct) (string, error) {
-	args := map[string]interface{}{
-		"product": product,
+	// Convert product struct to map and pass fields directly (not nested)
+	// The Convex mutation expects args matching the productSchema, not nested under "product"
+	productBytes, err := json.Marshal(product)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal product: %w", err)
 	}
 
-	result, err := c.Mutation(ctx, "products:create", args)
+	var args map[string]interface{}
+	if err := json.Unmarshal(productBytes, &args); err != nil {
+		return "", fmt.Errorf("failed to unmarshal product to map: %w", err)
+	}
+
+	// Remove fields that Convex adds automatically (not in validator)
+	delete(args, "createdAt")
+	delete(args, "updatedAt")
+	delete(args, "lastCurrencyUpdate") // Added by handler, not in input schema
+	delete(args, "searchField")        // Computed by handler from name/desc/tags
+
+	// Clean up variant fields that aren't in the Convex schema
+	if variants, ok := args["variants"].([]interface{}); ok {
+		for _, variant := range variants {
+			if v, ok := variant.(map[string]interface{}); ok {
+				delete(v, "priceKes")
+				delete(v, "originalPriceKes")
+			}
+		}
+	}
+
+	result, err := c.Mutation(ctx, "products/createProduct:create", args)
 	if err != nil {
 		return "", err
 	}
 
-	// Extract product ID from result
+	// Handle object response: {productId, slug, message}
+	if resultMap, ok := result.(map[string]interface{}); ok {
+		if productID, exists := resultMap["productId"]; exists {
+			if id, ok := productID.(string); ok {
+				return id, nil
+			}
+		}
+		return "", fmt.Errorf("productId field missing or invalid in response: %+v", resultMap)
+	}
+
+	// Fallback: Handle direct string response (for backward compatibility)
 	if id, ok := result.(string); ok {
 		return id, nil
 	}
 
-	return "", fmt.Errorf("unexpected result type: %T", result)
+	return "", fmt.Errorf("unexpected result type: %T, value: %+v", result, result)
 }
 
 // CreateCategory creates a category in Convex
 func (c *Client) CreateCategory(ctx context.Context, category ConvexCategory) (string, error) {
-	args := map[string]interface{}{
-		"category": category,
+	// Convert category struct to map and pass fields directly
+	categoryBytes, err := json.Marshal(category)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal category: %w", err)
 	}
+
+	var args map[string]interface{}
+	if err := json.Unmarshal(categoryBytes, &args); err != nil {
+		return "", fmt.Errorf("failed to unmarshal category to map: %w", err)
+	}
+
+	// Remove fields that Convex adds automatically (not in validator)
+	delete(args, "createdAt")
+	delete(args, "updatedAt")
 
 	result, err := c.Mutation(ctx, "categories:create", args)
 	if err != nil {
@@ -177,21 +238,9 @@ func (c *Client) CreateCategory(ctx context.Context, category ConvexCategory) (s
 
 // GetOrCreateCategory gets or creates a category by name
 func (c *Client) GetOrCreateCategory(ctx context.Context, name string) (string, error) {
-	// Try to get existing category first
-	args := map[string]interface{}{
-		"name": name,
-	}
+	// Note: categories:getByName doesn't exist in Convex backend
+	// Just try to create - if it exists, it will fail and we can handle that
 
-	result, err := c.Mutation(ctx, "categories:getByName", args)
-	if err == nil && result != nil {
-		if categoryMap, ok := result.(map[string]interface{}); ok {
-			if id, ok := categoryMap["_id"].(string); ok {
-				return id, nil
-			}
-		}
-	}
-
-	// Category doesn't exist, create it
 	now := float64(time.Now().UnixMilli())
 	category := ConvexCategory{
 		Name:      name,
@@ -201,14 +250,32 @@ func (c *Client) GetOrCreateCategory(ctx context.Context, name string) (string, 
 		UpdatedAt: now,
 	}
 
-	return c.CreateCategory(ctx, category)
+	id, err := c.CreateCategory(ctx, category)
+	if err != nil {
+		// If category already exists, this will fail
+		// For now, we'll return the error - in production you'd query existing categories
+		return "", fmt.Errorf("failed to create category %s: %w", name, err)
+	}
+
+	return id, nil
 }
 
 // CreateProductSpecification creates product specifications
 func (c *Client) CreateProductSpecification(ctx context.Context, spec ConvexProductSpecification) (string, error) {
-	args := map[string]interface{}{
-		"specification": spec,
+	// Convert spec struct to map and pass fields directly
+	specBytes, err := json.Marshal(spec)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal specification: %w", err)
 	}
+
+	var args map[string]interface{}
+	if err := json.Unmarshal(specBytes, &args); err != nil {
+		return "", fmt.Errorf("failed to unmarshal specification to map: %w", err)
+	}
+
+	// Remove fields that Convex adds automatically (not in validator)
+	delete(args, "createdAt")
+	delete(args, "updatedAt")
 
 	result, err := c.Mutation(ctx, "productSpecifications:create", args)
 	if err != nil {

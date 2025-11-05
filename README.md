@@ -62,7 +62,34 @@ convex:
   max_workers: 5
 ```
 
-### 3. Complete Pipeline
+### 3. Using the Makefile (Recommended)
+
+For a streamlined workflow, use the included Makefile:
+
+```bash
+# Setup and build
+make setup              # First-time setup (creates config.yaml, downloads deps)
+make build              # Build the application
+
+# Run complete pipeline
+make pipeline EXCEL_FILE=products.xlsx
+
+# Or run individual steps
+make run-analyze EXCEL_FILE=products.xlsx
+make run-enrich
+make run-import
+
+# Test before running
+make test-payload       # Verify Convex payload (57 fields)
+make pipeline-dry-run   # Test pipeline without actual import
+
+# Show all commands
+make help
+```
+
+**See [QUICKSTART.md](QUICKSTART.md) for detailed Makefile usage and examples.**
+
+### 4. Manual Pipeline (Alternative)
 
 ```bash
 # Step 1: Analyze Excel files and extract products

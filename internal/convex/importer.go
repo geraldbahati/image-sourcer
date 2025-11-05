@@ -43,15 +43,14 @@ func (im *Importer) Import(ctx context.Context, enrichedData *generator.Enrichme
 	result.CategoryIDMap = categoryMap
 	result.ImportedCategories = len(categoryMap)
 
-	// Step 2: Import products with concurrent workers
-	importedCount, productIDMap, importErrors := im.importProducts(ctx, enrichedData.Products, categoryMap)
+	// Step 2: Import products with concurrent workers (specifications included in product mutation)
+	importedCount, importErrors := im.importProducts(ctx, enrichedData.Products, categoryMap)
 	result.ImportedProducts = importedCount
 	result.Errors = append(result.Errors, importErrors...)
 
-	// Step 3: Import product specifications
-	specsCount, specsErrors := im.importSpecifications(ctx, enrichedData.Products, productIDMap)
-	result.ImportedSpecs = specsCount
-	result.Errors = append(result.Errors, specsErrors...)
+	// Note: Specifications are now included in product creation mutation
+	// No need for separate spec import
+	result.ImportedSpecs = 0 // Specs are part of product data now
 
 	result.Duration = time.Since(startTime)
 
@@ -103,14 +102,10 @@ func (im *Importer) createCategories(ctx context.Context, products []generator.E
 }
 
 // importProducts imports products with concurrent worker pool
-func (im *Importer) importProducts(ctx context.Context, products []generator.EnrichedProduct, categoryMap map[string]string) (int, map[string]string, []ImportError) {
+func (im *Importer) importProducts(ctx context.Context, products []generator.EnrichedProduct, categoryMap map[string]string) (int, []ImportError) {
 	// Create channels
 	jobChan := make(chan importJob, im.config.BatchSize)
 	resultChan := make(chan importJobResult, im.config.BatchSize)
-
-	// Track product IDs for specifications
-	productIDMap := make(map[string]string)
-	var productIDMu sync.Mutex
 
 	// Start workers
 	var wg sync.WaitGroup
@@ -140,10 +135,6 @@ func (im *Importer) importProducts(ctx context.Context, products []generator.Enr
 				})
 			} else {
 				importedCount++
-				// Track product ID for specifications
-				productIDMu.Lock()
-				productIDMap[result.SKU] = result.ProductID
-				productIDMu.Unlock()
 			}
 		}
 	}()
@@ -171,7 +162,7 @@ func (im *Importer) importProducts(ctx context.Context, products []generator.Enr
 	// Wait for result collector
 	collectorWg.Wait()
 
-	return importedCount, productIDMap, errors
+	return importedCount, errors
 }
 
 // importWorker processes import jobs

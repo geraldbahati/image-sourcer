@@ -24,34 +24,90 @@ func DefaultMapperConfig() MapperConfig {
 	}
 }
 
-// MapToConvexProduct converts EnrichedProduct to ConvexProduct
+// MapToConvexProduct converts EnrichedProduct to ConvexProduct matching your mutation schema
 func MapToConvexProduct(enriched generator.EnrichedProduct, categoryID *string, config MapperConfig) ConvexProduct {
-	now := float64(time.Now().UnixMilli())
+	// Ensure we have a valid base price (Convex requires non-zero)
+	basePrice := enriched.BasePriceKes
+	if basePrice == 0 {
+		basePrice = 10.0 // Default minimum price
+	}
 
-	// Create base product
+	// Calculate pricing fields with defaults
+	comparePrice := enriched.ComparePriceKes
+	costPrice := float64(0) // Default cost price to 0
+
+	// Calculate discounts if compare price exists
+	var discountAmount, discountPercentage *float64
+	if comparePrice > 0 && comparePrice > basePrice {
+		discount := comparePrice - basePrice
+		discountAmount = &discount
+		percentage := (discount / comparePrice) * 100
+		discountPercentage = &percentage
+	}
+
+	// Calculate profit if cost price exists and is greater than 0
+	var profitAmount, profitMargin, markupPercentage *float64
+	if costPrice > 0 && basePrice > costPrice {
+		profit := basePrice - costPrice
+		profitAmount = &profit
+		margin := (profit / basePrice) * 100
+		profitMargin = &margin
+		markup := (profit / costPrice) * 100
+		markupPercentage = &markup
+	}
+
+	// Generate availableSizes (empty array if no sizes)
+	availableSizes := mapSizeOptions(enriched.AvailableSizes)
+	if availableSizes == nil {
+		availableSizes = []string{} // Empty array instead of nil
+	}
+
+	// Create base product with ALL required fields
 	product := ConvexProduct{
-		// Basic Info
+		// Basic Information (REQUIRED)
 		Name:        enriched.Name,
 		Slug:        enriched.Slug,
 		Description: enriched.Description,
 		SKU:         enriched.SKU,
 		Barcode:     stringPtr(enriched.Barcode),
 
-		// USD Pricing (Source of Truth)
-		BasePriceUsd:    enriched.BasePriceUsd,
-		ComparePriceUsd: float64Ptr(enriched.ComparePriceUsd),
+		// Pricing Structure - KES Input (REQUIRED)
+		BasePrice:    basePrice,
+		ComparePrice: float64PtrOrZero(comparePrice), // Send 0 if not available
+		CostPrice:    float64PtrOrZero(costPrice),    // Send 0 if not available
 
-		// Calculated KES Pricing
-		BasePriceKes:       float64Ptr(enriched.BasePriceKes),
-		ComparePriceKes:    float64Ptr(enriched.ComparePriceKes),
-		LastCurrencyUpdate: float64Ptr(now),
+		// USD Pricing (optional - Convex will calculate)
+		BasePriceUsd:    float64PtrOrZero(enriched.BasePriceUsd),
+		ComparePriceUsd: float64PtrOrZero(enriched.ComparePriceUsd),
+		CostPriceUsd:    float64PtrOrZero(0), // Send 0 for Convex to calculate
 
-		// Legacy price fields (map to KES)
-		Price:         enriched.BasePriceKes, // Legacy field
-		OriginalPrice: float64Ptr(enriched.ComparePriceKes),
-		Discount:      calculateDiscountPercentage(enriched.BasePriceKes, enriched.ComparePriceKes),
+		// Tax Configuration (optional - use defaults)
+		TaxIncluded: boolPtr(false),
+		TaxClass:    stringPtr("standard"),
+		TaxRate:     float64Ptr(16.0), // Default VAT 16%
 
-		// Images - use placeholder if no primary image
+		// Profit & Markup Calculations
+		ProfitMargin:     profitMargin,
+		ProfitAmount:     profitAmount,
+		MarkupPercentage: markupPercentage,
+
+		// Discount Configuration
+		DiscountAmount:     discountAmount,
+		DiscountPercentage: discountPercentage,
+
+		// Currency Settings
+		Currency:       stringPtr("KES"),
+		CurrencySymbol: stringPtr("KSh"),
+
+		// Sale & Deal Configuration
+		IsOnSale: boolPtr(comparePrice > 0 && comparePrice > basePrice),
+
+		// Legacy pricing fields
+		Price:         float64Ptr(basePrice),
+		OriginalPrice: float64Ptr(comparePrice),
+		Discount:      discountPercentage,
+
+		// Images (REQUIRED: image)
 		Image:     getImageOrPlaceholder(enriched.PrimaryImage),
 		Images:    enriched.Images,
 		Thumbnail: stringPtr(enriched.ThumbnailURL),
@@ -61,45 +117,57 @@ func MapToConvexProduct(enriched generator.EnrichedProduct, categoryID *string, 
 		Category:   stringPtr(enriched.Category),
 
 		// Product Attributes
-		Tags:   enriched.Tags,
-		Badges: enriched.Badges,
-		IsNew:  boolPtr(enriched.IsNew),
-
-		// Mark products without images as new arrivals
+		Tags:         enriched.Tags,
+		Badges:       enriched.Badges,
+		IsNew:        boolPtr(enriched.IsNew),
+		Featured:     boolPtr(false), // Default
+		IsBestSeller: boolPtr(false), // Default
+		IsDailyDeal:  boolPtr(false), // Default
 		IsNewArrival: boolPtr(config.MarkNewArrivals && enriched.IsNew),
 
-		// Inventory
+		// Deal expiration (optional)
+		DealExpiresAt: nil,
+
+		// Inventory & Stock (REQUIRED: isActive)
 		Stock:    intPtr(enriched.Stock),
 		IsActive: enriched.IsActive,
+
+		// Physical Properties
+		Weight:     nil, // Not available in enriched data
+		Dimensions: nil, // Not available in enriched data
+
+		// Variants
+		AvailableSizes:  availableSizes, // Use pre-computed empty array
+		AvailableColors: mapColorOptions(enriched.AvailableColors),
+		Variants:        mapVariants(enriched.Variants),
 
 		// Features
 		Features: mapFeatures(enriched.Features),
 
-		// SEO
-		SEOTitle:              stringPtr(enriched.SEO.Title),
-		SEODescription:        stringPtr(enriched.SEO.Description),
-		SEOKeywords:           enriched.SEO.Keywords,
-		OpenGraphTitle:        stringPtr(enriched.SEO.OpenGraphTitle),
-		OpenGraphDescription:  stringPtr(enriched.SEO.OpenGraphDesc),
-		OpenGraphImage:        stringPtr(enriched.SEO.OpenGraphImage),
-		TwitterCard:           stringPtr(enriched.SEO.TwitterCard),
-		TwitterTitle:          stringPtr(enriched.SEO.TwitterTitle),
-		TwitterDescription:    stringPtr(enriched.SEO.TwitterDescription),
-		TwitterImage:          stringPtr(enriched.SEO.TwitterImage),
+		// Additional metadata
+		Metadata: nil,
 
-		// Search field
-		SearchField: generateSearchField(enriched),
+		// SEO Fields - ALL fields with defaults
+		SEOTitle:             stringPtr(enriched.SEO.Title),
+		SEODescription:       stringPtr(enriched.SEO.Description),
+		SEOKeywords:          enriched.SEO.Keywords,
+		MetaRobots:           stringPtr("index, follow"),
+		CanonicalUrl:         stringPtrEmpty(""), // Empty string instead of nil
+		OpenGraphTitle:       stringPtr(enriched.SEO.OpenGraphTitle),
+		OpenGraphDescription: stringPtr(enriched.SEO.OpenGraphDesc),
+		OpenGraphImage:       stringPtr(enriched.SEO.OpenGraphImage),
+		OpenGraphType:        stringPtr("product"),
+		TwitterCard:          stringPtr(enriched.SEO.TwitterCard),
+		TwitterTitle:         stringPtr(enriched.SEO.TwitterTitle),
+		TwitterDescription:   stringPtr(enriched.SEO.TwitterDescription),
+		TwitterImage:         stringPtr(enriched.SEO.TwitterImage),
+		StructuredData:       make(map[string]interface{}), // Empty object
+		SEOScore:             float64PtrOrZero(0),          // Default score 0
+		FocusKeyword:         stringPtrEmpty(""),           // Empty string
+		ReadabilityScore:     float64PtrOrZero(0),          // Default score 0
 
-		// Timestamps
-		CreatedAt: float64(enriched.CreatedAt.UnixMilli()),
-		UpdatedAt: float64(enriched.UpdatedAt.UnixMilli()),
-	}
-
-	// Map variants if product has variants
-	if enriched.IsVariantProduct && len(enriched.Variants) > 0 {
-		product.Variants = mapVariants(enriched.Variants)
-		product.AvailableColors = mapColorOptions(enriched.AvailableColors)
-		product.AvailableSizes = mapSizeOptions(enriched.AvailableSizes)
+		// Specifications - included in same mutation
+		Specifications: mapSpecificationsToInput(enriched.Specifications),
 	}
 
 	return product
@@ -123,7 +191,7 @@ func mapFeatures(features []generator.ProductFeature) []ConvexFeature {
 	return convexFeatures
 }
 
-// mapVariants converts generator.ProductVariant to ConvexVariant
+// mapVariants converts generator.ProductVariant to ConvexVariant matching your schema
 func mapVariants(variants []generator.ProductVariant) []ConvexVariant {
 	if len(variants) == 0 {
 		return nil
@@ -153,11 +221,15 @@ func mapVariants(variants []generator.ProductVariant) []ConvexVariant {
 			variant.Size = stringPtr(v.Size.Name)
 		}
 
-		// Map pricing
-		if v.PriceUsd > 0 {
-			variant.PriceUsd = float64Ptr(v.PriceUsd)
-			variant.PriceKes = float64Ptr(v.PriceKes)
-			variant.Price = float64Ptr(v.PriceKes) // Legacy field
+		// Map pricing - KES prices (required), USD prices (optional)
+		if v.PriceKes > 0 {
+			variant.Price = float64Ptr(v.PriceKes)     // KES price input
+			variant.PriceUsd = float64Ptr(v.PriceUsd) // USD price (calculated)
+
+			// For variants, use original price from enrichment if available
+			// (variants don't have separate OriginalPriceKes field)
+			variant.OriginalPrice = nil           // No original price for variants by default
+			variant.OriginalPriceUsd = nil
 		}
 
 		convexVariants[i] = variant
@@ -197,7 +269,52 @@ func mapSizeOptions(sizes []generator.SizeOption) []string {
 	return sizeNames
 }
 
-// MapToProductSpecifications converts enriched specifications to Convex format
+// mapSpecificationsToInput converts enriched specifications to input format for mutation
+func mapSpecificationsToInput(specifications map[string][]generator.Specification) []ConvexProductSpecificationInput {
+	if len(specifications) == 0 {
+		return nil
+	}
+
+	specs := make([]ConvexProductSpecificationInput, 0, len(specifications))
+	order := 0
+
+	for category, specList := range specifications {
+		if len(specList) == 0 {
+			continue
+		}
+
+		// Generate category ID
+		categoryID := fmt.Sprintf("spec-cat-%s-%d", generateSlugSimple(category), order)
+
+		// Convert spec list with IDs
+		convexSpecs := make([]ConvexSpecificationInput, len(specList))
+		for i, spec := range specList {
+			// Generate spec ID
+			specID := fmt.Sprintf("spec-%s-%d", generateSlugSimple(spec.Name), i)
+
+			convexSpecs[i] = ConvexSpecificationInput{
+				ID:    specID,
+				Name:  spec.Name,
+				Value: spec.Value,
+				Order: intPtr(spec.Order),
+			}
+		}
+
+		specs = append(specs, ConvexProductSpecificationInput{
+			ID:       categoryID,
+			Category: category,
+			Specs:    convexSpecs,
+			Order:    intPtr(order),
+			IsActive: true,
+		})
+
+		order++
+	}
+
+	return specs
+}
+
+// MapToProductSpecifications converts enriched specifications to Convex format (legacy - for separate API calls)
 func MapToProductSpecifications(enriched generator.EnrichedProduct, productID string) []ConvexProductSpecification {
 	if len(enriched.Specifications) == 0 {
 		return nil
@@ -294,6 +411,16 @@ func float64Ptr(f float64) *float64 {
 	return &f
 }
 
+// float64PtrOrZero always returns a pointer, even for zero values
+func float64PtrOrZero(f float64) *float64 {
+	return &f
+}
+
+// stringPtrEmpty returns empty string pointer instead of nil for empty strings
+func stringPtrEmpty(s string) *string {
+	return &s
+}
+
 func boolPtr(b bool) *bool {
 	return &b
 }
@@ -305,6 +432,27 @@ func getImageOrPlaceholder(image string) string {
 		return "https://via.placeholder.com/800x800.png?text=No+Image"
 	}
 	return image
+}
+
+// generateSlugSimple creates a simple slug from a string
+func generateSlugSimple(s string) string {
+	// Convert to lowercase and replace spaces/special chars with hyphens
+	s = strings.ToLower(s)
+	s = strings.ReplaceAll(s, " ", "-")
+	// Remove any character that's not alphanumeric or hyphen
+	result := ""
+	for _, ch := range s {
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-' {
+			result += string(ch)
+		}
+	}
+	// Remove consecutive hyphens
+	for strings.Contains(result, "--") {
+		result = strings.ReplaceAll(result, "--", "-")
+	}
+	// Trim hyphens from ends
+	result = strings.Trim(result, "-")
+	return result
 }
 
 // ValidateConvexProduct validates a Convex product before import
@@ -321,18 +469,15 @@ func ValidateConvexProduct(product ConvexProduct) error {
 		return fmt.Errorf("product SKU is required")
 	}
 
-	// Image is not required - products without images will use placeholder
-	// if product.Image == "" {
-	// 	return fmt.Errorf("product image is required")
-	// }
-
-	if product.BasePriceUsd < 0 {
-		return fmt.Errorf("product price cannot be negative")
+	if product.Image == "" {
+		return fmt.Errorf("product image is required")
 	}
 
-	if product.SearchField == "" {
-		return fmt.Errorf("search field is required")
+	if product.BasePrice < 0 {
+		return fmt.Errorf("product basePrice cannot be negative")
 	}
+
+	// SearchField is not in the mutation schema, removed
 
 	return nil
 }
