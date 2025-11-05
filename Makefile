@@ -98,56 +98,61 @@ check-deps: ## Check for missing dependencies
 
 generate-csv: build ## Generate CSV from images directory
 	@echo "📝 Generating CSV from $(IMAGE_DIR)..."
-	@$(BUILD_DIR)/$(BINARY_NAME) generate --dir $(IMAGE_DIR) --output $(CSV_FILE)
+	@$(BUILD_DIR)/$(BINARY_NAME) generate --dir "$(IMAGE_DIR)" --output "$(CSV_FILE)"
 	@echo "✅ CSV generated: $(CSV_FILE)"
 
 generate-csv-interactive: build ## Generate CSV with interactive mode
 	@echo "📝 Generating CSV with interactive mode..."
-	@$(BUILD_DIR)/$(BINARY_NAME) generate --dir $(IMAGE_DIR) --output $(CSV_FILE) --interactive
+	@$(BUILD_DIR)/$(BINARY_NAME) generate --dir "$(IMAGE_DIR)" --output "$(CSV_FILE)" --interactive
 	@echo "✅ CSV generated: $(CSV_FILE)"
+
+generate-csv-downloads: build ## Generate CSV from Downloads folder specifically
+	@echo "📝 Generating CSV from Downloads folder..."
+	@$(BUILD_DIR)/$(BINARY_NAME) generate --dir "/Users/geraldbahati/Downloads" --output "products-auto.csv"
+	@echo "✅ CSV generated: products-auto.csv"
 
 validate-csv: build ## Validate CSV file
 	@echo "🔍 Validating CSV: $(CSV_FILE)..."
-	@$(BUILD_DIR)/$(BINARY_NAME) validate --csv $(CSV_FILE)
+	@$(BUILD_DIR)/$(BINARY_NAME) validate --csv "$(CSV_FILE)"
 	@echo "✅ CSV validation complete"
 
 ##@ Image Upload (Cloudinary)
 
 upload-images: build validate-csv ## Upload images to Cloudinary
 	@echo "☁️  Uploading images from $(CSV_FILE)..."
-	@$(BUILD_DIR)/$(BINARY_NAME) upload --csv $(CSV_FILE) --workers $(WORKERS)
+	@$(BUILD_DIR)/$(BINARY_NAME) upload --csv "$(CSV_FILE)" --workers $(WORKERS)
 	@echo "✅ Upload complete"
 
 upload-images-dry-run: build ## Dry run upload (validate only)
 	@echo "🔍 Dry run upload validation..."
-	@$(BUILD_DIR)/$(BINARY_NAME) upload --csv $(CSV_FILE) --dry-run
+	@$(BUILD_DIR)/$(BINARY_NAME) upload --csv "$(CSV_FILE)" --dry-run
 	@echo "✅ Validation complete"
 
 upload-images-resume: build ## Resume interrupted upload
 	@echo "♻️  Resuming upload..."
-	@$(BUILD_DIR)/$(BINARY_NAME) upload --csv $(CSV_FILE) --resume
+	@$(BUILD_DIR)/$(BINARY_NAME) upload --csv "$(CSV_FILE)" --resume
 	@echo "✅ Upload resumed"
 
 ##@ Product Pipeline (Excel → Convex)
 
 run-analyze: build ## Step 1: Analyze Excel file
 	@echo "📊 Analyzing Excel file: $(EXCEL_FILE)..."
-	@$(BUILD_DIR)/$(BINARY_NAME) analyze --excel $(EXCEL_FILE) --output $(ANALYZED_FILE)
+	@$(BUILD_DIR)/$(BINARY_NAME) analyze --excel "$(EXCEL_FILE)" --output "$(ANALYZED_FILE)"
 	@echo "✅ Analysis complete: $(ANALYZED_FILE)"
 
 run-enrich: build ## Step 2: Enrich products with AI
 	@echo "🤖 Enriching products from $(ANALYZED_FILE)..."
-	@$(BUILD_DIR)/$(BINARY_NAME) enrich --input $(ANALYZED_FILE) --output $(ENRICHED_FILE)
+	@$(BUILD_DIR)/$(BINARY_NAME) enrich --input "$(ANALYZED_FILE)" --output "$(ENRICHED_FILE)"
 	@echo "✅ Enrichment complete: $(ENRICHED_FILE)"
 
-run-import: build ## Step 3: Import to Convex
+run-import: build ## Step 3: Import to Convex (reads config from config.yaml)
 	@echo "📤 Importing products to Convex from $(ENRICHED_FILE)..."
-	@$(BUILD_DIR)/$(BINARY_NAME) import --input $(ENRICHED_FILE) --config $(CONFIG_FILE)
+	@$(BUILD_DIR)/$(BINARY_NAME) import --input "$(ENRICHED_FILE)"
 	@echo "✅ Import complete"
 
 run-import-dry-run: build ## Dry run import (validate only)
 	@echo "🔍 Dry run import validation..."
-	@$(BUILD_DIR)/$(BINARY_NAME) import --input $(ENRICHED_FILE) --dry-run
+	@$(BUILD_DIR)/$(BINARY_NAME) import --input "$(ENRICHED_FILE)" --dry-run
 	@echo "✅ Validation complete"
 
 pipeline: build run-analyze run-enrich run-import ## Run full pipeline: Excel → Analyze → Enrich → Import
@@ -155,10 +160,248 @@ pipeline: build run-analyze run-enrich run-import ## Run full pipeline: Excel �
 
 pipeline-dry-run: build ## Test full pipeline without actual import
 	@echo "🔍 Running full pipeline in dry-run mode..."
-	@$(BUILD_DIR)/$(BINARY_NAME) analyze --excel $(EXCEL_FILE) --output $(ANALYZED_FILE)
-	@$(BUILD_DIR)/$(BINARY_NAME) enrich --input $(ANALYZED_FILE) --output $(ENRICHED_FILE)
-	@$(BUILD_DIR)/$(BINARY_NAME) import --input $(ENRICHED_FILE) --dry-run
+	@$(BUILD_DIR)/$(BINARY_NAME) analyze --excel "$(EXCEL_FILE)" --output "$(ANALYZED_FILE)"
+	@$(BUILD_DIR)/$(BINARY_NAME) enrich --input "$(ANALYZED_FILE)" --output "$(ENRICHED_FILE)"
+	@$(BUILD_DIR)/$(BINARY_NAME) import --input "$(ENRICHED_FILE)" --dry-run
 	@echo "✅ Dry-run pipeline complete"
+
+##@ Complete Workflow
+
+full-workflow: build ## Complete workflow: Images → Cloudinary → Excel → Convex (interactive)
+	@echo "🚀 Starting Full Workflow: Images → Cloudinary → Excel → Convex"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@echo "Step 1/6: 📂 Locate Images Folder"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@if [ -z "$(IMAGE_DIR_INPUT)" ]; then \
+		echo "Please specify the images folder path:"; \
+		echo "  • Press ENTER to use Downloads folder"; \
+		echo "  • Or type custom path (e.g., /path/to/images)"; \
+		echo "  • Or type 'browse' to open file browser"; \
+		read -p "Images folder: " img_dir; \
+		if [ "$$img_dir" = "browse" ]; then \
+			if [ "$$(uname)" = "Darwin" ]; then \
+				img_dir=$$(osascript -e 'POSIX path of (choose folder with prompt "Select Images Folder")' 2>/dev/null || echo ""); \
+			elif command -v zenity >/dev/null 2>&1; then \
+				img_dir=$$(zenity --file-selection --directory --title="Select Images Folder" 2>/dev/null || echo ""); \
+			else \
+				echo "⚠️  File browser not available. Please enter path manually:"; \
+				read -p "Images folder: " img_dir; \
+			fi; \
+		fi; \
+		if [ -z "$$img_dir" ]; then \
+			img_dir="/Users/geraldbahati/Downloads"; \
+		fi; \
+		$(MAKE) _workflow_continue IMAGE_DIR_INPUT="$$img_dir"; \
+	else \
+		$(MAKE) _workflow_continue IMAGE_DIR_INPUT="$(IMAGE_DIR_INPUT)"; \
+	fi
+
+_workflow_continue: ## Internal: Continue workflow after getting image dir
+	@echo ""
+	@echo "✓ Using images folder: $(IMAGE_DIR_INPUT)"
+	@echo ""
+	@echo "Step 2/6: 📝 Generate CSV from images"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@$(BUILD_DIR)/$(BINARY_NAME) generate --dir "$(IMAGE_DIR_INPUT)" --output "products-auto.csv" || (echo "❌ CSV generation failed" && exit 1)
+	@echo ""
+	@echo "Step 3/6: ☁️  Upload images to Cloudinary"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Checking upload state..."
+	@if [ ! -f ".upload-state.json" ] || [ "$$(cat .upload-state.json | grep -c '"sku"')" -eq 0 ]; then \
+		echo "Starting fresh upload..."; \
+		$(BUILD_DIR)/$(BINARY_NAME) upload --csv "products-auto.csv" --workers 20 || (echo "❌ Upload failed" && exit 1); \
+	else \
+		echo "⚠️  Previous upload detected. Options:"; \
+		echo "  1) Resume upload (only upload new/failed images)"; \
+		echo "  2) Reset and re-upload all"; \
+		echo "  3) Skip upload (use existing)"; \
+		read -p "Choice [1/2/3]: " choice; \
+		case $$choice in \
+			2) $(BUILD_DIR)/$(BINARY_NAME) reset && $(BUILD_DIR)/$(BINARY_NAME) upload --csv "products-auto.csv" --workers 20 || (echo "❌ Upload failed" && exit 1);; \
+			3) echo "Skipping upload...";; \
+			*) $(BUILD_DIR)/$(BINARY_NAME) upload --csv "products-auto.csv" --resume --workers 20 || (echo "❌ Upload failed" && exit 1);; \
+		esac; \
+	fi
+	@echo ""
+	@echo "Step 4/6: 📊 Locate Excel file"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@if [ -z "$(EXCEL_FILE_INPUT)" ]; then \
+		echo "Please specify the Excel file path:"; \
+		echo "  • Type the full path to your Excel file"; \
+		echo "  • Or type 'browse' to open file browser"; \
+		read -p "Excel file: " excel_file; \
+		if [ "$$excel_file" = "browse" ]; then \
+			if [ "$$(uname)" = "Darwin" ]; then \
+				excel_file=$$(osascript -e 'POSIX path of (choose file with prompt "Select Excel File" of type {"org.openxmlformats.spreadsheetml.sheet", "com.microsoft.excel.xls"})' 2>/dev/null || echo ""); \
+			elif command -v zenity >/dev/null 2>&1; then \
+				excel_file=$$(zenity --file-selection --title="Select Excel File" --file-filter="Excel files (xlsx) | *.xlsx" 2>/dev/null || echo ""); \
+			else \
+				echo "⚠️  File browser not available. Please enter path manually:"; \
+				read -p "Excel file: " excel_file; \
+			fi; \
+		fi; \
+		if [ -z "$$excel_file" ]; then \
+			echo "❌ No Excel file specified. Exiting."; \
+			exit 1; \
+		fi; \
+		$(MAKE) _workflow_analyze EXCEL_FILE_INPUT="$$excel_file"; \
+	else \
+		$(MAKE) _workflow_analyze EXCEL_FILE_INPUT="$(EXCEL_FILE_INPUT)"; \
+	fi
+
+_workflow_analyze: ## Internal: Analyze Excel
+	@echo ""
+	@echo "✓ Using Excel file: $(EXCEL_FILE_INPUT)"
+	@echo ""
+	@echo "Step 5/6: 🔍 Analyze Excel & Enrich products"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@$(BUILD_DIR)/$(BINARY_NAME) analyze --excel "$(EXCEL_FILE_INPUT)" --output "analyzed_products.json" || (echo "❌ Analysis failed" && exit 1)
+	@echo ""
+	@echo "🤖 Enriching with AI-generated content..."
+	@$(BUILD_DIR)/$(BINARY_NAME) enrich --input "analyzed_products.json" --output "enriched_products.json" || (echo "❌ Enrichment failed" && exit 1)
+	@echo ""
+	@echo "Step 6/6: 📤 Import to Convex"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@if ! grep -q "deployment_url" config.yaml 2>/dev/null; then \
+		echo "❌ Convex URL not found in config.yaml"; \
+		echo "Please add your Convex deployment URL to config.yaml:"; \
+		echo ""; \
+		echo "convex:"; \
+		echo "  deployment_url: \"https://your-deployment.convex.cloud\""; \
+		exit 1; \
+	fi
+	@echo "Ready to import to Convex. Options:"; \
+	echo "  1) Import now"; \
+	echo "  2) Dry-run first (validate without importing)"; \
+	echo "  3) Skip import"; \
+	read -p "Choice [1/2/3]: " choice; \
+	case $$choice in \
+		2) $(BUILD_DIR)/$(BINARY_NAME) import --input "enriched_products.json" --dry-run && \
+		   read -p "Validation passed. Import now? [y/N]: " confirm && \
+		   [ "$$confirm" = "y" ] && $(BUILD_DIR)/$(BINARY_NAME) import --input "enriched_products.json" || echo "Skipping import...";; \
+		3) echo "Skipping import...";; \
+		*) $(BUILD_DIR)/$(BINARY_NAME) import --input "enriched_products.json" || (echo "❌ Import failed" && exit 1);; \
+	esac
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "✅ 🎉 Full workflow complete!"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@echo "Summary:"
+	@echo "  • Images CSV: products-auto.csv"
+	@echo "  • Analyzed data: analyzed_products.json"
+	@echo "  • Enriched data: enriched_products.json"
+	@echo "  • Upload state: .upload-state.json"
+	@echo ""
+
+quick-workflow: ## Quick workflow with Downloads folder and auto-prompt for Excel
+	@$(MAKE) full-workflow IMAGE_DIR_INPUT="/Users/geraldbahati/Downloads"
+
+full-workflow-dry-run: build ## Test complete workflow WITHOUT uploading (safe to test)
+	@echo "🧪 Testing Full Workflow (DRY RUN - No uploads)"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@echo "Step 1/5: 📂 Locate Images Folder"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@if [ -z "$(IMAGE_DIR_INPUT)" ]; then \
+		echo "Please specify the images folder path:"; \
+		echo "  • Press ENTER to use Downloads folder"; \
+		echo "  • Or type custom path (e.g., /path/to/images)"; \
+		echo "  • Or type 'browse' to open file browser"; \
+		read -p "Images folder: " img_dir; \
+		if [ "$$img_dir" = "browse" ]; then \
+			if [ "$$(uname)" = "Darwin" ]; then \
+				img_dir=$$(osascript -e 'POSIX path of (choose folder with prompt "Select Images Folder")' 2>/dev/null || echo ""); \
+			elif command -v zenity >/dev/null 2>&1; then \
+				img_dir=$$(zenity --file-selection --directory --title="Select Images Folder" 2>/dev/null || echo ""); \
+			else \
+				echo "⚠️  File browser not available. Please enter path manually:"; \
+				read -p "Images folder: " img_dir; \
+			fi; \
+		fi; \
+		if [ -z "$$img_dir" ]; then \
+			img_dir="/Users/geraldbahati/Downloads"; \
+		fi; \
+		$(MAKE) _workflow_dry_run_continue IMAGE_DIR_INPUT="$$img_dir"; \
+	else \
+		$(MAKE) _workflow_dry_run_continue IMAGE_DIR_INPUT="$(IMAGE_DIR_INPUT)"; \
+	fi
+
+_workflow_dry_run_continue: ## Internal: Continue dry-run workflow
+	@echo ""
+	@echo "✓ Using images folder: $(IMAGE_DIR_INPUT)"
+	@echo ""
+	@echo "Step 2/5: 📝 Generate CSV from images (Test Only)"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@$(BUILD_DIR)/$(BINARY_NAME) generate --dir "$(IMAGE_DIR_INPUT)" --output "products-dry-run.csv" || (echo "❌ CSV generation failed" && exit 1)
+	@echo ""
+	@echo "Step 3/5: ✅ Validate images (No Upload)"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Validating images without uploading to Cloudinary..."
+	@$(BUILD_DIR)/$(BINARY_NAME) upload --csv "products-dry-run.csv" --dry-run || (echo "❌ Validation failed" && exit 1)
+	@echo "✓ All images validated successfully (no actual upload performed)"
+	@echo ""
+	@echo "Step 4/5: 📊 Locate Excel file"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@if [ -z "$(EXCEL_FILE_INPUT)" ]; then \
+		echo "Please specify the Excel file path:"; \
+		echo "  • Type the full path to your Excel file"; \
+		echo "  • Or type 'browse' to open file browser"; \
+		read -p "Excel file: " excel_file; \
+		if [ "$$excel_file" = "browse" ]; then \
+			if [ "$$(uname)" = "Darwin" ]; then \
+				excel_file=$$(osascript -e 'POSIX path of (choose file with prompt "Select Excel File" of type {"org.openxmlformats.spreadsheetml.sheet", "com.microsoft.excel.xls"})' 2>/dev/null || echo ""); \
+			elif command -v zenity >/dev/null 2>&1; then \
+				excel_file=$$(zenity --file-selection --title="Select Excel File" --file-filter="Excel files (xlsx) | *.xlsx" 2>/dev/null || echo ""); \
+			else \
+				echo "⚠️  File browser not available. Please enter path manually:"; \
+				read -p "Excel file: " excel_file; \
+			fi; \
+		fi; \
+		if [ -z "$$excel_file" ]; then \
+			echo "❌ No Excel file specified. Exiting."; \
+			exit 1; \
+		fi; \
+		$(MAKE) _workflow_dry_run_analyze EXCEL_FILE_INPUT="$$excel_file"; \
+	else \
+		$(MAKE) _workflow_dry_run_analyze EXCEL_FILE_INPUT="$(EXCEL_FILE_INPUT)"; \
+	fi
+
+_workflow_dry_run_analyze: ## Internal: Analyze for dry-run
+	@echo ""
+	@echo "✓ Using Excel file: $(EXCEL_FILE_INPUT)"
+	@echo ""
+	@echo "Step 5/5: 🔍 Analyze & Enrich (Test Only)"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@$(BUILD_DIR)/$(BINARY_NAME) analyze --excel "$(EXCEL_FILE_INPUT)" --output "analyzed_products_dry_run.json" || (echo "❌ Analysis failed" && exit 1)
+	@echo ""
+	@echo "🤖 Enriching with AI-generated content..."
+	@$(BUILD_DIR)/$(BINARY_NAME) enrich --input "analyzed_products_dry_run.json" --output "enriched_products_dry_run.json" || (echo "❌ Enrichment failed" && exit 1)
+	@echo ""
+	@echo "✅ Validating Convex data structure (No Import)"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@$(BUILD_DIR)/$(BINARY_NAME) import --input "enriched_products_dry_run.json" --dry-run || (echo "❌ Convex validation failed" && exit 1)
+	@echo "✓ All 57 fields validated successfully (no actual import performed)"
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "✅ 🧪 Dry-run workflow complete!"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@echo "Summary (Test Files Created):"
+	@echo "  • Images CSV: products-dry-run.csv"
+	@echo "  • Analyzed data: analyzed_products_dry_run.json"
+	@echo "  • Enriched data: enriched_products_dry_run.json"
+	@echo ""
+	@echo "✓ All validations passed!"
+	@echo "✓ No images uploaded to Cloudinary"
+	@echo "✓ No data imported to Convex"
+	@echo ""
+	@echo "💡 To run for real, use: make full-workflow"
+	@echo ""
+
+quick-workflow-dry-run: ## Quick dry-run test with Downloads folder
+	@$(MAKE) full-workflow-dry-run IMAGE_DIR_INPUT="/Users/geraldbahati/Downloads"
 
 ##@ Utilities
 

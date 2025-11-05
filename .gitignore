@@ -40,6 +40,17 @@ products-with-images.json
 *-products.json
 *-output.json
 
+# Workflow generated files (from make commands)
+analyzed_products.json
+analyzed_products_dry_run.json
+enriched_products.json
+enriched_products_dry_run.json
+products-auto.csv
+products-images.csv
+products-dry-run.csv
+*-dry-run.csv
+*-dry-run.json
+
 # Reports directory (generated upload reports)
 reports/
 *.report.csv
@@ -50,6 +61,10 @@ test-data/
 fixtures/
 *.csv
 !config.example.yaml
+
+# Test scripts (temporary)
+test_*.sh
+/tmp/test_*.sh
 
 # Excel test files
 *.xlsx
